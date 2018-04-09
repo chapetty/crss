@@ -16,6 +16,9 @@ struct crss_menu {
   struct crss_menu_item *last;
 };
 
+struct crss_menu *crss_get_main_menu();
+void crss_free_main_menu();
+
 void append_menu_item(struct crss_menu *, struct crss_menu_item *);
 void delete_menu_item(struct crss_menu *, struct crss_menu_item *);
 

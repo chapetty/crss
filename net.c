@@ -7,6 +7,10 @@
 #include <fcntl.h>
 #include <sys/socket.h>
 
+#ifdef SSL_SUPPORT
+#include <openssl/ssl.h>
+#endif
+
 #include <time.h>
 
 #include <netdb.h>
@@ -23,6 +27,17 @@ struct parse_url {
   char *port;
   char *get;
 };
+
+#ifdef SSL_SUPPORT
+SSL_CTX * get_ssl_ctx() {
+  static SSL_CTX *ssl_ctx = NULL;
+  if (ssl_ctx == NULL) {
+    SSL_library_init();
+    ssl_ctx = SSL_CTX_new(SSLv23_client_method());
+  }
+  return ssl_ctx;
+}
+#endif
 
 int get_line(int sockfd, char *buf, size_t len) {
 
@@ -328,16 +343,10 @@ void file_download(const char *filename, const char *url) {
 
 }
 
-struct crss_menu *crss_m;
-
 void init_data() {
-  crss_m = create_menu();
+  struct crss_menu *crss_m = crss_get_main_menu();
   // This will ultimately need to read a podcast list from a file, for now add podcasts here to test
-  append_menu_item(crss_m, create_menu_item("Test Podcast", "http://testpodcasturl/test.xml"));
-}
-
-void free_data() {
-  free_menu(crss_m);
+  append_menu_item(crss_m, create_menu_item("Test Podcast", "https://testpodcasturl/test.xml"));
 }
 
 void set_title(const char *data) {
@@ -345,185 +354,12 @@ void set_title(const char *data) {
 }
 
 void set_item_title(const char *data) {
-  append_menu_item(crss_m->sel->sub_menu, create_menu_item(data, NULL));
+  append_menu_item(crss_get_main_menu()->sel->sub_menu, create_menu_item(data, NULL));
 }
 
 void set_item_url(const char *data) {
-  crss_m->sel->sub_menu->last->url = malloc(strlen(data) + 1);
-  strcpy(crss_m->sel->sub_menu->last->url, data);
-}
-
-int main(int argc, char **argv) {
-
-  init_data();
-
-  main_window_init();
-  main_window_draw(crss_m);
-  main_window_free();
-
-  free_data();
-
-  return 0;
-
-}
-
-int main_alt(int argc, char **argv) {
-
-  init_data();
-
-  struct addrinfo hints;
-  struct addrinfo *ai;
-  struct addrinfo *ai_iter;
-  int sockfd;
-
-  const char *TEST_CONNECT = "livingzen.libsyn.com";
-  const char *TEST_GET = "/rss";
-
-  memset(&hints, 0, sizeof(struct addrinfo));
-  hints.ai_family = AF_INET;
-  hints.ai_socktype = SOCK_STREAM;
-
-  ai = NULL;
-  getaddrinfo(TEST_CONNECT, "http", &hints, &ai);
-
-  struct sockaddr_in *res_ai_addr;
-  res_ai_addr = (struct sockaddr_in *) ai->ai_addr;
-
-  uint8_t *addr_shift;
-  int i;
-
-  ai_iter = ai;
-
-  time_t now = time(NULL);
-  struct tm *tm = gmtime(&now);
-  struct tm testm;
-  testm.tm_sec = 0;
-  testm.tm_min = 30;
-  testm.tm_hour = 6;
-  testm.tm_mday = 28;
-  testm.tm_mon = 4;
-  testm.tm_year = 113;
-  testm.tm_wday = 2;
-  testm.tm_yday = 147;
-  testm.tm_isdst = 0;
-  testm.tm_gmtoff = 0;
-  testm.tm_zone = "GMT";
-  char modified_since[32];
-  tm = &testm;
-  strftime(modified_since, 32, "%a, %d %b %Y %T %Z", tm);
-  const char *headers[] = {"Host", TEST_CONNECT, "If-Modified-Since", modified_since, NULL};
-
-  while (ai_iter) {
-
-    res_ai_addr = (struct sockaddr_in *) ai_iter->ai_addr;
-
-    for (i = 0; i < 4; ++i) {
-      addr_shift = (uint8_t *) &res_ai_addr->sin_addr.s_addr;
-      printf("%i", *(addr_shift+i));
-      if (i == 3)
-        printf(":");
-      else
-        printf(".");
-    }
-
-    for (i = 0; i < 2; ++i) {
-      addr_shift = (uint8_t *) &res_ai_addr->sin_port;
-      printf("%i", *(addr_shift+i));
-    }
-
-    printf(", %i\n", ai_iter->ai_addrlen);
-
-    ai_iter = ai_iter->ai_next;
-
-  }
-
-  sockfd = socket(AF_INET, SOCK_STREAM, 0);
-  if (sockfd == -1) {
-    fprintf(stderr, "socket could not be created\n");
-    exit(1);
-  }
-
-  if (connect(sockfd, ai->ai_addr, ai->ai_addrlen)) {
-    perror("could not connect");
-    exit(1);
-  }
-
-  char buf[256];
-  int reqlen = sn_build_get_request(buf, 256, TEST_GET, headers);
-  fprintf(stderr, "%s", buf);
-  int total_size = 0;
-
-  if (send(sockfd, buf, reqlen, 0) < 0) {
-    perror("bad send");
-    exit(1);
-  }
-
-  ssize_t readlen;
-  int nline;
-
-  nline = get_line(sockfd, buf, 128);
-  int status = get_status(buf);
-  printf("STATUS: %i\n", status);
-
-  while (nline) {
-    nline = get_line(sockfd, buf, 128);
-    printf("line: %s\n", buf);
-  }
-
-  if (status != 200) exit(1);
-
-  char c;
-  do {
-    readlen = recv(sockfd, &c, 1, MSG_PEEK);
-    if (readlen < 1 || c == '<')
-      break;
-    recv(sockfd, &c, 1, 0);
-  } while (readlen);
-
-  //total_size = 0;
-  //do {
-  //  readlen = recv(sockfd, buf, 128, 0);
-  //  total_size += readlen;
-  //  for (i = 0; i < readlen; ++i)
-  //    putchar(buf[i]);
-  //} while (readlen > 0);
-
-  //printf("total size: %i\n", total_size);
-
-  init_tags();
-  register_tag_handler("/rss/channel/title", set_title);
-  register_tag_handler("item/title", set_item_title);
-  register_tag_handler("/rss/channel/item/enclosure@url", set_item_url);
-
-#ifdef DEBUG
-  DEBUG_list_tags();
-#endif
-
-  parse(sockfd);
-
-  free_tags();
-
-  close(sockfd);
-
-  main_window_init();
-  main_window_draw(crss_m);
-  main_window_free();
-
-  //printf("download %s?\n", download_title);
-  //printf("(%s)\n", download_url);
-
-  //do {
-  //  c = getchar();
-  //  if (c == 'y' || c == 'Y')
-  //    file_download("test.mp3", download_url);
-  //  else if (c == 'n' || c == 'N')
-  //    break;
-  //} while (1);
-
-  free_data();
-
-  return 0;
-
+  crss_get_main_menu()->sel->sub_menu->last->url = malloc(strlen(data) + 1);
+  strcpy(crss_get_main_menu()->sel->sub_menu->last->url, data);
 }
 
 void get(const char *url) {
@@ -531,6 +367,10 @@ void get(const char *url) {
   struct addrinfo hints;
   struct addrinfo *ai;
   int sockfd;
+
+  #ifdef SSL_SUPPORT
+  SSL *ssl;
+  #endif
 
   struct parse_url parsed_url;
   bzero(&parsed_url, sizeof(struct parse_url));
@@ -574,6 +414,19 @@ void get(const char *url) {
   if (connect(sockfd, ai->ai_addr, ai->ai_addrlen)) {
     perror("could not connect");
     exit(1);
+  }
+
+  if (strindex(parsed_url.service, "https") != -1) {
+    #ifdef SSL_SUPPORT
+    ssl = SSL_new(get_ssl_ctx());
+    SSL_set_fd(ssl, sockfd);
+    if (SSL_connect(ssl)) {
+      perror("ssl socket connection failure");
+      exit(1);
+    }
+    #else
+    perror("ssl not supported");
+    #endif
   }
 
   char buf[256];

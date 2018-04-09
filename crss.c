@@ -3,6 +3,22 @@
 
 #include "crss.h"
 
+struct crss_menu *_crss_main_menu = NULL;
+
+struct crss_menu * crss_get_main_menu() {
+  if (_crss_main_menu == NULL) {
+    _crss_main_menu = create_menu();
+  }
+  return _crss_main_menu;
+}
+
+void crss_free_main_menu() {
+  if(_crss_main_menu) {
+    free_menu(_crss_main_menu);
+    _crss_main_menu = NULL;
+  }
+}
+
 void append_menu_item(struct crss_menu *menu, struct crss_menu_item *menu_item) {
 
   struct crss_menu_item *tmp;
@@ -91,5 +107,19 @@ void free_menu_item(struct crss_menu_item *menu_item) {
     free_menu(menu_item->sub_menu);
 
   free(menu_item);
+
+}
+
+int main(int argc, char **argv) {
+
+  init_data();
+
+  main_window_init();
+  main_window_draw(crss_get_main_menu());
+  main_window_free();
+
+  crss_free_main_menu();
+
+  return 0;
 
 }
